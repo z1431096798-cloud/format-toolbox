@@ -2472,6 +2472,7 @@ TOOLS.other.push({
   input: 'files',
   params: [
     { key: 'name', type: 'text', label: '新名称（可选，填了就替换原名，可加下划线如 报告_）', default: '' },
+    { key: 'newExt', type: 'text', label: '新扩展名（可选，如 md、jpg，不带点）', default: '' },
     { key: 'prefix', type: 'text', label: '前缀（可选）', default: '' },
     { key: 'suffix', type: 'text', label: '后缀（扩展名前，可选）', default: '' },
     { key: 'find', type: 'text', label: '查找文字（可选）', default: '' },
@@ -2480,10 +2481,11 @@ TOOLS.other.push({
     { key: 'numDigits', type: 'num', label: '序号位数', default: '3' },
     { key: 'caseMode', type: 'seg', label: '文件名大小写', default: 'keep', options: [{ v: 'keep', l: '不变' }, { v: 'upper', l: '全大写' }, { v: 'lower', l: '全小写' }] }
   ],
-  hint: '填"新名称"就完全替换原名（多文件自动加序号）；不填就保留原名，可加前后缀、替换文字、改大小写。扩展名自动保留。',
+  hint: '填"新名称"就完全替换原名（多文件自动加序号）；不填就保留原名，可加前后缀、替换文字、改大小写。填"新扩展名"可直接改后缀，不填保留原后缀。',
   run: async function () {
     if (!wb.files.length) throw new Error('请先选择文件');
     var name = wb.params.name || '';
+    var newExt = (wb.params.newExt || '').trim().replace(/^\./, '');
     var prefix = wb.params.prefix || '';
     var suffix = wb.params.suffix || '';
     var find = wb.params.find || '';
@@ -2499,6 +2501,7 @@ TOOLS.other.push({
       var f = wb.files[i];
       var base = baseName(f.name);
       var ext = extName(f.name);
+      if (newExt) ext = '.' + newExt;
       // 新名称替换原名主体
       if (name) base = name;
       // 没填新名称时才对原名做查找替换、大小写
