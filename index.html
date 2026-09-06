@@ -2468,30 +2468,29 @@ TOOLS.other.push({
 });
 
 TOOLS.other.push({
-  id: 'rename', name: '文件重命名', desc: '批量重命名：完全改名 / 前后缀 / 替换 / 大小写，打包下载',
+  id: 'rename', name: '文件重命名', desc: '批量重命名：新名称 / 前后缀 / 替换 / 序号 / 大小写',
   input: 'files',
   params: [
-    { key: 'mode', type: 'seg', label: '重命名模式', default: 'full', options: [{ v: 'full', l: '完全改名' }, { v: 'modify', l: '修改原名' }] },
-    { key: 'name', type: 'text', label: '新名称（完全改名用，可加下划线，如 报告_）', default: '文件_' },
-    { key: 'numStart', type: 'num', label: '序号起始（完全改名用）', default: '1' },
-    { key: 'numDigits', type: 'num', label: '序号位数（完全改名用）', default: '3' },
-    { key: 'prefix', type: 'text', label: '前缀（修改原名用，可选）', default: '' },
-    { key: 'suffix', type: 'text', label: '后缀（修改原名用，扩展名前，可选）', default: '' },
-    { key: 'find', type: 'text', label: '查找文字（修改原名用，可选）', default: '' },
-    { key: 'replace', type: 'text', label: '替换为（修改原名用，可选）', default: '' },
-    { key: 'caseMode', type: 'seg', label: '文件名大小写（修改原名用）', default: 'keep', options: [{ v: 'keep', l: '不变' }, { v: 'upper', l: '全大写' }, { v: 'lower', l: '全小写' }] }
+    { key: 'name', type: 'text', label: '新名称（可选，填了就替换原名，可加下划线如 报告_）', default: '' },
+    { key: 'prefix', type: 'text', label: '前缀（可选）', default: '' },
+    { key: 'suffix', type: 'text', label: '后缀（扩展名前，可选）', default: '' },
+    { key: 'find', type: 'text', label: '查找文字（可选）', default: '' },
+    { key: 'replace', type: 'text', label: '替换为（可选）', default: '' },
+    { key: 'numStart', type: 'num', label: '序号起始（0=不启用序号）', default: '0' },
+    { key: 'numDigits', type: 'num', label: '序号位数', default: '3' },
+    { key: 'caseMode', type: 'seg', label: '文件名大小写', default: 'keep', options: [{ v: 'keep', l: '不变' }, { v: 'upper', l: '全大写' }, { v: 'lower', l: '全小写' }] }
   ],
-  hint: '完全改名：所有文件按"新名称"重命名（1个文件不加序号，多个文件自动加序号），原名不用；修改原名：在原文件名基础上加前后缀、替换文字或改大小写。新名称不含扩展名，扩展名自动保留。',
+  hint: '填"新名称"就完全替换原名（多文件自动加序号）；不填就保留原名，可加前后缀、替换文字、改大小写。扩展名自动保留。',
   run: async function () {
     if (!wb.files.length) throw new Error('请先选择文件');
-    var mode = wb.params.mode || 'full';
     var name = wb.params.name || '';
-    var numStart = parseInt(wb.params.numStart, 10); if (isNaN(numStart)) numStart = 1;
-    var numDigits = parseInt(wb.params.numDigits, 10); if (isNaN(numDigits) || numDigits < 1) numDigits = 3;
     var prefix = wb.params.prefix || '';
     var suffix = wb.params.suffix || '';
     var find = wb.params.find || '';
     var replace = wb.params.replace || '';
+    var numStart = parseInt(wb.params.numStart, 10); if (isNaN(numStart)) numStart = 0;
+    var numDigits = parseInt(wb.params.numDigits, 10); if (isNaN(numDigits) || numDigits < 1) numDigits = 3;
+    var useNum = numStart > 0;
     var caseMode = wb.params.caseMode || 'keep';
     var used = {};
     var items = [];
@@ -2500,21 +2499,21 @@ TOOLS.other.push({
       var f = wb.files[i];
       var base = baseName(f.name);
       var ext = extName(f.name);
-      var newBase;
-      if (mode === 'full') {
-        if (wb.files.length === 1) {
-          newBase = name;
-        } else {
-          var seq = String(numStart + i);
-          while (seq.length < numDigits) seq = '0' + seq;
-          newBase = name + seq;
-        }
-      } else {
+      // 新名称替换原名主体
+      if (name) base = name;
+      // 没填新名称时才对原名做查找替换、大小写
+      if (!name) {
         if (find) base = base.split(find).join(replace);
         if (caseMode === 'upper') base = base.toUpperCase();
         else if (caseMode === 'lower') base = base.toLowerCase();
-        newBase = prefix + base + suffix;
       }
+      // 序号
+      if (useNum) {
+        var seq = String(numStart + i);
+        while (seq.length < numDigits) seq = '0' + seq;
+        base = base + seq;
+      }
+      var newBase = prefix + base + suffix;
       var newName = newBase + ext;
       var key = newName.toLowerCase();
       if (used[key]) {
