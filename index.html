@@ -1062,13 +1062,25 @@ var ID_SIZES = {
   one: { n: '一寸', w: 25, h: 35 }, small1: { n: '小一寸', w: 22, h: 32 },
   big1: { n: '大一寸', w: 33, h: 48 }, two: { n: '二寸', w: 35, h: 49 }, small2: { n: '小二寸', w: 35, h: 45 }
 };
-/* AI 抠图库懒加载：@imgly/background-removal（ISNet 模型，纯前端浏览器本地运行） */
+/* AI 抠图库懒加载：@imgly/background-removal（纯前端浏览器本地运行） */
 var _removeBgMod = null;
 async function loadRemoveBg() {
   if (_removeBgMod) return _removeBgMod;
-  var mod = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm');
-  _removeBgMod = mod;
-  return mod;
+  var urls = [
+    'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm',
+    'https://unpkg.com/@imgly/background-removal@1.5.5/+esm'
+  ];
+  var lastErr = null;
+  for (var i = 0; i < urls.length; i++) {
+    try {
+      var mod = await import(urls[i]);
+      _removeBgMod = mod;
+      return mod;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('抠图库加载失败，请检查网络后重试');
 }
 /* 检测透明 PNG 中非透明区域的边界，用于人像定位裁剪 */
 function findFgBox(img) {
@@ -1113,14 +1125,32 @@ TOOLS.image.push({
     showProgress(true, '正在加载 AI 抠图模型...');
     var mod = await loadRemoveBg();
     showProgress(true, 'AI 抠图处理中...');
-    var cutoutBlob = await mod.removeBackground(f, {
-      model: 'isnet',
-      progress: function (key, current, total) {
-        if (key && (key.indexOf('fetch') >= 0 || key === 'compute:inference') && total > 0) {
-          showProgress(true, '处理中 ' + Math.round(current / total * 100) + '%');
+    var cutoutBlob = null;
+    var lastErr = null;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        cutoutBlob = await mod.removeBackground(f, {
+          model: 'isnet',
+          progress: function (key, current, total) {
+            if (key && (key.indexOf('fetch') >= 0 || key === 'compute:inference') && total > 0) {
+              showProgress(true, '处理中 ' + Math.round(current / total * 100) + '%');
+            }
+          }
+        });
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < 2) {
+          showProgress(true, '网络波动，第 ' + (attempt + 2) + ' 次重试...');
+          await new Promise(function (r) { setTimeout(r, 2000); });
         }
       }
-    });
+    }
+    if (!cutoutBlob) {
+      showProgress(false);
+      var msg = lastErr && lastErr.message ? lastErr.message : '';
+      throw new Error('AI 抠图失败，请检查网络后重试。' + (msg ? '（' + msg.slice(0, 80) + '）' : ''));
+    }
     showProgress(false);
     var cutoutImg = await loadImage(cutoutBlob);
     var sz = ID_SIZES[wb.params.size];
