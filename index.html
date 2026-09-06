@@ -1062,138 +1062,82 @@ var ID_SIZES = {
   one: { n: '一寸', w: 25, h: 35 }, small1: { n: '小一寸', w: 22, h: 32 },
   big1: { n: '大一寸', w: 33, h: 48 }, two: { n: '二寸', w: 35, h: 49 }, small2: { n: '小二寸', w: 35, h: 45 }
 };
-/* 肤色检测：粗定位脸部区域（借鉴证件照工具的人脸定位流程） */
-function findSkinBox(canvas) {
-  var ctx = canvas.getContext('2d');
-  var w = canvas.width, h = canvas.height;
-  var step = Math.max(1, Math.floor(Math.min(w, h) / 180));
-  var img = ctx.getImageData(0, 0, w, h).data;
-  var minX = w, minY = h, maxX = -1, maxY = -1, count = 0;
-  for (var y = 0; y < h; y += step) {
-    for (var x = 0; x < w; x += step) {
-      var i = (y * w + x) * 4;
-      var r = img[i], g = img[i + 1], b = img[i + 2];
-      if (r > 90 && g > 35 && b > 15 && r > g && r > b && (r - g) > 12 && (r - b) > 12 && (r - Math.min(g, b)) > 25) {
+/* AI 抠图库懒加载：@imgly/background-removal（ISNet 模型，纯前端浏览器本地运行） */
+var _removeBgMod = null;
+async function loadRemoveBg() {
+  if (_removeBgMod) return _removeBgMod;
+  var mod = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm');
+  _removeBgMod = mod;
+  return mod;
+}
+/* 检测透明 PNG 中非透明区域的边界，用于人像定位裁剪 */
+function findFgBox(img) {
+  var cv = document.createElement('canvas');
+  var maxDim = 600;
+  var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  cv.width = Math.round(img.naturalWidth * scale);
+  cv.height = Math.round(img.naturalHeight * scale);
+  var ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  var data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+  var minX = cv.width, minY = cv.height, maxX = -1, maxY = -1, count = 0;
+  var step = 2;
+  for (var y = 0; y < cv.height; y += step) {
+    for (var x = 0; x < cv.width; x += step) {
+      var a = data[(y * cv.width + x) * 4 + 3];
+      if (a > 20) {
         if (x < minX) minX = x; if (x > maxX) maxX = x;
         if (y < minY) minY = y; if (y > maxY) maxY = y;
         count++;
       }
     }
   }
-  if (count < 8 || maxX - minX < 4 || maxY - minY < 4) return null;
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
-/* mask 均值模糊：得到 0-1 前景 alpha，边缘柔和过渡 */
-function blurMask(bg, w, h, passes) {
-  var cur = new Float32Array(w * h);
-  for (var i = 0; i < cur.length; i++) cur[i] = bg[i] ? 0 : 1;
-  for (var p = 0; p < passes; p++) {
-    var next = new Float32Array(cur.length);
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        var s = 0, c = 0;
-        for (var dy = -1; dy <= 1; dy++) {
-          var yy = y + dy;
-          if (yy < 0 || yy >= h) continue;
-          for (var dx = -1; dx <= 1; dx++) {
-            var xx = x + dx;
-            if (xx < 0 || xx >= w) continue;
-            s += cur[yy * w + xx]; c++;
-          }
-        }
-        next[y * w + x] = s / c;
-      }
-    }
-    cur = next;
-  }
-  return cur;
-}
-function changeBg(cv, hex, tol) {
-  var ctx = cv.getContext('2d');
-  var w = cv.width, h = cv.height;
-  var id = ctx.getImageData(0, 0, w, h), d = id.data;
-  var rgb = parseColor(hex);
-  var samples = [];
-  function sample(x, y) {
-    for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) {
-      var xx = Math.min(w - 1, Math.max(0, x + dx)), yy = Math.min(h - 1, Math.max(0, y + dy));
-      var i = (yy * w + xx) * 4;
-      samples.push([d[i], d[i + 1], d[i + 2]]);
-    }
-  }
-  sample(3, 3); sample(w - 4, 3); sample(3, h - 4); sample(w - 4, h - 4);
-  var ref = [0, 0, 0];
-  samples.forEach(function (s) { ref[0] += s[0]; ref[1] += s[1]; ref[2] += s[2]; });
-  ref[0] /= samples.length; ref[1] /= samples.length; ref[2] /= samples.length;
-  var tol2 = tol * tol * 3;
-  var visited = new Uint8Array(w * h), bg = new Uint8Array(w * h), stack = [];
-  function push(x, y) {
-    if (x < 0 || y < 0 || x >= w || y >= h) return;
-    var i = y * w + x;
-    if (visited[i]) return;
-    visited[i] = 1; stack.push(i);
-  }
-  for (var x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
-  for (var y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
-  var head = 0;
-  while (head < stack.length) {
-    var i = stack[head++];
-    var dr = d[i * 4] - ref[0], dg = d[i * 4 + 1] - ref[1], db = d[i * 4 + 2] - ref[2];
-    if (dr * dr + dg * dg + db * db <= tol2) {
-      bg[i] = 1;
-      var x2 = i % w, y2 = (i / w) | 0;
-      push(x2 + 1, y2); push(x2 - 1, y2); push(x2, y2 + 1); push(x2, y2 - 1);
-    }
-  }
-  /* 边缘羽化：前景 alpha 渐变，避免生硬"贴纸"边缘 */
-  var fg = blurMask(bg, w, h, 2);
-  for (var j = 0; j < w * h; j++) {
-    var a = fg[j];
-    if (a <= 0.02) { d[j * 4] = rgb.r; d[j * 4 + 1] = rgb.g; d[j * 4 + 2] = rgb.b; }
-    else if (a < 0.98) {
-      d[j * 4] = Math.round(d[j * 4] * a + rgb.r * (1 - a));
-      d[j * 4 + 1] = Math.round(d[j * 4 + 1] * a + rgb.g * (1 - a));
-      d[j * 4 + 2] = Math.round(d[j * 4 + 2] * a + rgb.b * (1 - a));
-    }
-  }
-  ctx.putImageData(id, 0, 0);
+  if (count < 10) return null;
+  return {
+    x: minX / scale, y: minY / scale,
+    w: (maxX - minX) / scale, h: (maxY - minY) / scale
+  };
 }
 
 TOOLS.image.push({
-  id: 'id_photo', name: '证件照制作', desc: '自动识别人像构图：换底色 + 标准尺寸 + 排版',
+  id: 'id_photo', name: '证件照制作', desc: 'AI 智能抠图换底色，标准证件照尺寸，支持排版',
   input: 'file', accept: 'image/*',
   params: [
     { key: 'size', type: 'seg', label: '尺寸', default: 'one', options: [{ v: 'one', l: '一寸 25×35' }, { v: 'small1', l: '小一寸 22×32' }, { v: 'big1', l: '大一寸 33×48' }, { v: 'two', l: '二寸 35×49' }, { v: 'small2', l: '小二寸 35×45' }] },
-    { key: 'bg', type: 'seg', label: '底色', default: 'blue', options: [{ v: 'white', l: '白色' }, { v: 'blue', l: '蓝色' }, { v: 'red', l: '红色' }, { v: 'none', l: '不换底' }] },
-    { key: 'tol', type: 'range', label: '抠图强度', default: 55, min: 25, max: 110 },
-    { key: 'hr', type: 'range', label: '头部占比', default: 70, min: 50, max: 85, suffix: '%' },
+    { key: 'bg', type: 'seg', label: '底色', default: 'blue', options: [{ v: 'white', l: '白色' }, { v: 'blue', l: '蓝色' }, { v: 'red', l: '红色' }, { v: 'transparent', l: '透明 PNG' }] },
     { key: 'layout', type: 'seg', label: '排版', default: 'single', options: [{ v: 'single', l: '单张' }, { v: 'grid', l: '6 张排版' }] }
   ],
-  hint: '上传正面照，自动定位头部并按证件照规范构图（头顶留白、头部占比），边缘羽化换底色',
+  hint: '上传正面免冠照，AI 自动抠图（首次使用需下载约 40MB 模型，之后缓存），按证件照规范构图换底色。',
   run: async function () {
     var f = wb.files[0];
-    var img = await loadImage(f);
+    showProgress(true, '正在加载 AI 抠图模型...');
+    var mod = await loadRemoveBg();
+    showProgress(true, 'AI 抠图处理中...');
+    var cutoutBlob = await mod.removeBackground(f, {
+      model: 'isnet',
+      progress: function (key, current, total) {
+        if (key && (key.indexOf('fetch') >= 0 || key === 'compute:inference') && total > 0) {
+          showProgress(true, '处理中 ' + Math.round(current / total * 100) + '%');
+        }
+      }
+    });
+    showProgress(false);
+    var cutoutImg = await loadImage(cutoutBlob);
     var sz = ID_SIZES[wb.params.size];
     var dpi = 300;
     var pw = Math.round(sz.w / 25.4 * dpi), ph = Math.round(sz.h / 25.4 * dpi);
     var ratio = pw / ph;
-    var iw = img.naturalWidth, ih = img.naturalHeight;
-    /* 在缩小后的画布上做肤色检测（加快速度） */
-    var tmp = document.createElement('canvas');
-    var sw = 480, sh = Math.round(ih * sw / iw);
-    tmp.width = sw; tmp.height = sh;
-    tmp.getContext('2d').drawImage(img, 0, 0, sw, sh);
-    var face = findSkinBox(tmp);
-    var headRatio = (wb.params.hr || 70) / 100;
+    var iw = cutoutImg.naturalWidth, ih = cutoutImg.naturalHeight;
+    /* 用非透明区域（人像）定位，按证件照规范构图：头顶留白约 8%，头部占比约 70% */
+    var fg = findFgBox(cutoutImg);
     var sx, sy, cw, ch;
-    if (face) {
-      /* 由脸部推导头部区域，再按"头部占比 + 头顶留白"反推裁剪窗口 */
-      var headW = face.w / 0.72, headH = headW * 1.25;
-      var headCX = (face.x + face.w / 2) / sw * iw;
-      var headTopY = (face.y - face.h * 0.10) / sh * ih;
-      ch = headH / sh * ih / headRatio;
+    if (fg) {
+      var headCX = fg.x + fg.w / 2;
+      var headTopY = fg.y;
+      var headRatio = 0.70;
+      ch = fg.h / headRatio;
       cw = ch * ratio;
-      var topPad = ch * 0.10;
+      var topPad = ch * 0.08;
       sy = headTopY - topPad;
       sx = headCX - cw / 2;
     } else {
@@ -1204,15 +1148,16 @@ TOOLS.image.push({
     sy = Math.round(Math.max(0, Math.min(ih - ch, sy)));
     var cv = document.createElement('canvas'); cv.width = pw; cv.height = ph;
     var ctx = cv.getContext('2d');
-    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, pw, ph);
-    ctx.drawImage(img, sx, sy, Math.round(cw), Math.round(ch), 0, 0, pw, ph);
-    var bgName = { white: '白底', blue: '蓝底', red: '红底', none: '原底' }[wb.params.bg];
-    if (wb.params.bg !== 'none') {
-      var bgHex = { white: '#FFFFFF', blue: '#2E5CBE', red: '#D9001B' }[wb.params.bg];
-      changeBg(cv, bgHex, parseInt(wb.params.tol, 10));
+    var bgHex = { white: '#FFFFFF', blue: '#2E5CBE', red: '#D9001B' }[wb.params.bg];
+    if (wb.params.bg !== 'transparent') {
+      ctx.fillStyle = bgHex; ctx.fillRect(0, 0, pw, ph);
     }
-    var blob = await canvasToBlob(cv, 'image/jpeg', 0.95);
-    var items = [{ name: sz.n + '证件照_' + bgName + '.jpg', url: URL.createObjectURL(blob), w: pw, h: ph, size: blob.size, mime: 'image/jpeg' }];
+    ctx.drawImage(cutoutImg, sx, sy, Math.round(cw), Math.round(ch), 0, 0, pw, ph);
+    var outMime = wb.params.bg === 'transparent' ? 'image/png' : 'image/jpeg';
+    var outExt = wb.params.bg === 'transparent' ? 'png' : 'jpg';
+    var blob = await canvasToBlob(cv, outMime, 0.95);
+    var bgName = { white: '白底', blue: '蓝底', red: '红底', transparent: '透明' }[wb.params.bg];
+    var items = [{ name: sz.n + '证件照_' + bgName + '.' + outExt, url: URL.createObjectURL(blob), w: pw, h: ph, size: blob.size, mime: outMime }];
     if (wb.params.layout === 'grid') {
       var paperW = 1500, paperH = 1050, col = 3, row = 2;
       var cellW = Math.min(pw, Math.floor((paperW - 40) / col)), cellH = Math.round(cellW * ph / pw);
