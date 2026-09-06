@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>万能格式转换</title>
+<meta name="apple-mobile-web-app-title" content="工具箱">
+<title>工具箱</title>
 <style>
   /* ===== 基础 ===== */
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -32,7 +33,13 @@
     border-bottom: 1px solid var(--line); padding: calc(var(--safe-top) + 12px) 0 10px;
   }
   .app-bar-inner { display: flex; align-items: center; justify-content: space-between; }
-  .app-bar h1 { font-size: 19px; font-weight: 700; }
+  .app-title { display: flex; align-items: center; gap: 10px; }
+  .app-logo {
+    width: 36px; height: 36px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--primary), var(--primary-deep)); color: #fff;
+    box-shadow: 0 2px 8px rgba(43,75,215,.35);
+  }
+  .app-bar h1 { font-size: 19px; font-weight: 700; letter-spacing: .5px; }
   .badge { font-size: 12px; color: var(--primary); background: var(--primary-soft); padding: 4px 10px; border-radius: 999px; font-weight: 600; }
   .app-refresh {
     flex: none; width: 40px; height: 40px; margin-left: 10px; display: flex; align-items: center; justify-content: center;
@@ -42,9 +49,29 @@
   .app-refresh.spin svg { animation: refreshSpin .7s ease; }
   @keyframes refreshSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+  /* ===== 搜索框 ===== */
+  .search-bar {
+    position: sticky; top: calc(var(--safe-top) + 56px); z-index: 18;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 0 12px; margin: 10px 16px 0; height: 44px;
+    box-shadow: 0 1px 3px rgba(32,36,46,.05);
+  }
+  .search-icon { color: var(--ink-3); display: flex; align-items: center; flex: none; }
+  .search-input {
+    flex: 1; border: 0; background: transparent; outline: none; font-size: 15px; color: var(--ink);
+    font-family: inherit; min-width: 0;
+  }
+  .search-input::placeholder { color: var(--ink-3); }
+  .search-clear {
+    flex: none; border: 0; background: #ECEAE2; color: var(--ink-2); width: 26px; height: 26px;
+    border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .search-clear:active { background: #E0DED5; }
+
   /* ===== 分类 Tab ===== */
   .tabs {
-    position: sticky; top: 52px; z-index: 19; background: rgba(244,243,239,.92);
+    position: sticky; top: calc(var(--safe-top) + 108px); z-index: 17; background: rgba(244,243,239,.92);
     -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
     display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px 8px;
     -webkit-overflow-scrolling: touch; scrollbar-width: none;
@@ -52,9 +79,12 @@
   .tabs::-webkit-scrollbar { display: none; }
   .tabs button {
     flex: none; border: 1px solid var(--line); background: var(--card); color: var(--ink-2);
-    border-radius: 999px; font-size: 14px; font-weight: 600; padding: 8px 16px; min-height: 38px;
+    border-radius: 999px; font-size: 14px; font-weight: 600; padding: 7px 14px; min-height: 38px;
+    display: inline-flex; align-items: center; gap: 6px;
   }
+  .tabs button .tab-ico { display: inline-flex; align-items: center; opacity: .85; }
   .tabs button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .tabs button.active .tab-ico { opacity: 1; }
 
   /* ===== 工具卡片 ===== */
   .tool-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 14px 0 24px; }
@@ -71,6 +101,14 @@
   }
   .tool-card .tc-name { font-size: 15px; font-weight: 700; }
   .tool-card .tc-desc { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+  .tool-card .tc-cat {
+    align-self: flex-start; font-size: 11px; font-weight: 600; color: var(--primary);
+    background: var(--primary-soft); padding: 2px 8px; border-radius: 999px; margin-top: auto;
+  }
+  .empty-tip {
+    grid-column: 1 / -1; text-align: center; color: var(--ink-3); font-size: 14px;
+    padding: 40px 0;
+  }
 
   /* ===== 工作台 ===== */
   .wb-top { display: flex; align-items: center; gap: 10px; padding: 14px 0 4px; }
@@ -224,13 +262,28 @@
 <!-- ===== 顶栏 ===== -->
 <header class="app-bar">
   <div class="wrap app-bar-inner">
-    <h1>万能格式转换</h1>
-    <span class="badge">本机处理</span>
+    <div class="app-title">
+      <span class="app-logo" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </span>
+      <h1>工具箱</h1>
+    </div>
     <button type="button" class="app-refresh" id="refreshBtn" aria-label="刷新页面" title="刷新页面">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
     </button>
   </div>
 </header>
+
+<!-- ===== 搜索 ===== -->
+<div class="search-bar wrap">
+  <span class="search-icon" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+  </span>
+  <input type="search" id="toolSearch" class="search-input" placeholder="搜索工具，如 PDF、压缩、裁剪…" autocomplete="off">
+  <button type="button" class="search-clear" id="searchClear" aria-label="清除搜索" hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+  </button>
+</div>
 
 <!-- ===== 分类导航 ===== -->
 <nav class="tabs" id="tabs"></nav>
@@ -554,10 +607,15 @@ var TOOLS = { image: [], pdf: [], text: [], table: [], media: [], archive: [], g
 
 /* ===== 框架 ===== */
 var activeCat = 'image';
+var searchKw = '';
 function renderTabs() {
   el.tabs.innerHTML = '';
   CATS.forEach(function (c) {
-    var b = document.createElement('button'); b.type = 'button'; b.textContent = c.name;
+    var b = document.createElement('button'); b.type = 'button';
+    var ico = document.createElement('span'); ico.className = 'tab-ico';
+    ico.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + CAT_ICONS[c.id] + '</svg>';
+    var tx = document.createElement('span'); tx.textContent = c.name;
+    b.appendChild(ico); b.appendChild(tx);
     if (c.id === activeCat) b.classList.add('active');
     b.addEventListener('click', function () { activeCat = c.id; renderTabs(); renderToolList(); });
     el.tabs.appendChild(b);
@@ -566,14 +624,37 @@ function renderTabs() {
 function renderToolList() {
   el.toolList.hidden = false; el.workbench.hidden = true;
   el.toolGrid.innerHTML = '';
-  (TOOLS[activeCat] || []).forEach(function (t) {
+  var kw = searchKw.trim().toLowerCase();
+  var list = [];
+  if (kw) {
+    CATS.forEach(function (c) {
+      (TOOLS[c.id] || []).forEach(function (t) {
+        if ((t.name + ' ' + t.desc + ' ' + t.id).toLowerCase().indexOf(kw) >= 0) list.push({ tool: t, cat: c });
+      });
+    });
+  } else {
+    var cur = CATS.filter(function (c) { return c.id === activeCat; })[0];
+    (TOOLS[activeCat] || []).forEach(function (t) { list.push({ tool: t, cat: cur }); });
+  }
+  if (!list.length) {
+    var empty = document.createElement('div'); empty.className = 'empty-tip';
+    empty.textContent = '没有找到匹配的工具';
+    el.toolGrid.appendChild(empty);
+    return;
+  }
+  list.forEach(function (item) {
+    var t = item.tool, c = item.cat;
     var card = document.createElement('button'); card.type = 'button'; card.className = 'tool-card';
     var icon = document.createElement('div'); icon.className = 'tc-icon';
-    icon.style.background = CAT_COLORS[activeCat];
-    icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + CAT_ICON_STROKE[activeCat] + '" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + CAT_ICONS[activeCat] + '</svg>';
+    icon.style.background = CAT_COLORS[c.id];
+    icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + CAT_ICON_STROKE[c.id] + '" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + CAT_ICONS[c.id] + '</svg>';
     var nm = document.createElement('div'); nm.className = 'tc-name'; nm.textContent = t.name;
     var ds = document.createElement('div'); ds.className = 'tc-desc'; ds.textContent = t.desc;
     card.appendChild(icon); card.appendChild(nm); card.appendChild(ds);
+    if (kw) {
+      var tag = document.createElement('span'); tag.className = 'tc-cat'; tag.textContent = c.name;
+      card.appendChild(tag);
+    }
     card.addEventListener('click', function () { openTool(t); });
     el.toolGrid.appendChild(card);
   });
@@ -2386,6 +2467,85 @@ TOOLS.other.push({
   }
 });
 
+TOOLS.other.push({
+  id: 'rename', name: '文件重命名', desc: '批量重命名：完全改名 / 前后缀 / 替换 / 大小写，打包下载',
+  input: 'files',
+  params: [
+    { key: 'mode', type: 'seg', label: '重命名模式', default: 'full', options: [{ v: 'full', l: '完全改名' }, { v: 'modify', l: '修改原名' }] },
+    { key: 'name', type: 'text', label: '新名称（完全改名用，可加下划线，如 报告_）', default: '文件_' },
+    { key: 'numStart', type: 'num', label: '序号起始（完全改名用）', default: '1' },
+    { key: 'numDigits', type: 'num', label: '序号位数（完全改名用）', default: '3' },
+    { key: 'prefix', type: 'text', label: '前缀（修改原名用，可选）', default: '' },
+    { key: 'suffix', type: 'text', label: '后缀（修改原名用，扩展名前，可选）', default: '' },
+    { key: 'find', type: 'text', label: '查找文字（修改原名用，可选）', default: '' },
+    { key: 'replace', type: 'text', label: '替换为（修改原名用，可选）', default: '' },
+    { key: 'caseMode', type: 'seg', label: '文件名大小写（修改原名用）', default: 'keep', options: [{ v: 'keep', l: '不变' }, { v: 'upper', l: '全大写' }, { v: 'lower', l: '全小写' }] }
+  ],
+  hint: '完全改名：所有文件按"新名称"重命名（1个文件不加序号，多个文件自动加序号），原名不用；修改原名：在原文件名基础上加前后缀、替换文字或改大小写。新名称不含扩展名，扩展名自动保留。',
+  run: async function () {
+    if (!wb.files.length) throw new Error('请先选择文件');
+    var mode = wb.params.mode || 'full';
+    var name = wb.params.name || '';
+    var numStart = parseInt(wb.params.numStart, 10); if (isNaN(numStart)) numStart = 1;
+    var numDigits = parseInt(wb.params.numDigits, 10); if (isNaN(numDigits) || numDigits < 1) numDigits = 3;
+    var prefix = wb.params.prefix || '';
+    var suffix = wb.params.suffix || '';
+    var find = wb.params.find || '';
+    var replace = wb.params.replace || '';
+    var caseMode = wb.params.caseMode || 'keep';
+    var used = {};
+    var items = [];
+    var preview = [];
+    for (var i = 0; i < wb.files.length; i++) {
+      var f = wb.files[i];
+      var base = baseName(f.name);
+      var ext = extName(f.name);
+      var newBase;
+      if (mode === 'full') {
+        if (wb.files.length === 1) {
+          newBase = name;
+        } else {
+          var seq = String(numStart + i);
+          while (seq.length < numDigits) seq = '0' + seq;
+          newBase = name + seq;
+        }
+      } else {
+        if (find) base = base.split(find).join(replace);
+        if (caseMode === 'upper') base = base.toUpperCase();
+        else if (caseMode === 'lower') base = base.toLowerCase();
+        newBase = prefix + base + suffix;
+      }
+      var newName = newBase + ext;
+      var key = newName.toLowerCase();
+      if (used[key]) {
+        used[key]++;
+        newName = newBase + '_' + used[key] + ext;
+      } else {
+        used[key] = 0;
+      }
+      items.push({ name: newName, blob: f });
+      preview.push(f.name + '  →  ' + newName);
+    }
+    // 显示结果：单文件直接下载，多文件打包zip
+    if (items.length === 1) {
+      showFileResult(items[0].blob, items[0].name);
+    } else {
+      var zip = await buildZip(items);
+      showFileResult(zip, '重命名文件_' + items.length + '个.zip');
+    }
+    // 在顶部插入预览
+    var resultEl = document.getElementById('wbResult');
+    var pv = document.createElement('div'); pv.className = 'card';
+    pv.style.marginBottom = '14px';
+    var h3 = document.createElement('h3'); h3.textContent = '重命名预览（' + items.length + ' 个文件）';
+    pv.appendChild(h3);
+    var list = document.createElement('div'); list.style.cssText = 'font-size:13px;line-height:1.9;color:var(--ink-2);word-break:break-all;max-height:240px;overflow-y:auto;white-space:pre-wrap;';
+    list.textContent = preview.join('\n');
+    pv.appendChild(list);
+    resultEl.insertBefore(pv, resultEl.firstChild);
+  }
+});
+
 /* ========== 文档工具 ========== */
 TOOLS.text.push({
   id: 'md_html', name: 'Markdown ⇄ HTML', desc: 'Markdown 与 HTML 互转',
@@ -2948,6 +3108,21 @@ if (refreshBtn) {
     refreshBtn.classList.add('spin');
     setTimeout(function () { refreshBtn.classList.remove('spin'); }, 700);
     setTimeout(function () { location.reload(); }, 350);
+  });
+}
+var toolSearch = document.getElementById('toolSearch');
+var searchClear = document.getElementById('searchClear');
+if (toolSearch) {
+  toolSearch.addEventListener('input', function () {
+    searchKw = toolSearch.value;
+    searchClear.hidden = !searchKw;
+    renderToolList();
+  });
+}
+if (searchClear) {
+  searchClear.addEventListener('click', function () {
+    toolSearch.value = ''; searchKw = ''; searchClear.hidden = true;
+    toolSearch.focus(); renderToolList();
   });
 }
 renderTabs();
